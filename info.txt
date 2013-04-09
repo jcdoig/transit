@@ -1,3 +1,5 @@
-test
+This only includes the interface, which is still a work in progress.
 
-hello yall
+If you need to add tome interactivity use the buttons B1 or B2
+
+-Jean

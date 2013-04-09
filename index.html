@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+body {
+  font: 10px sans-serif;
+  }
+  .background {
+    fill: white;
+    pointer-events: all;
+  }
+
+  .loading {
+    fill: black;
+  }
+
+  .menu rect {
+    fill: grey;
+    stroke-width: 2;
+    stroke: white;
+  }
+  
+  .selected {
+    stroke: steelblue;
+  }
+
+  .route {
+    stroke: grey;
+  }
+
+  .map path {
+    fill: none;
+    stroke: grey;
+    stroke-linejoin: round;
+  }
+
+  .dot {
+    stroke: #000;
+  }
+
+  .interfase path {
+    fill: none;
+    stroke: grey;
+    stroke-linejoin: round;
+  }
+
+  .interfase rect {
+    fill: grey;
+    stroke: white;
+  }
+
+  .interfase text {
+    fill: white;
+    text-anchor: middle;
+  }
+
+</style>
+<body>
+<script src="d3.v3.min.js"></script>
+<script>
+//global variables
+
+var interval;
+var svgstops;
+
+//Data
+var routes, shapes;
+
+//Interface
+var iface = {}, interfase = {} // an object to group all the interfase variables
+
+var centered, sroute
+
+var margin = {top: 20, right: 20, bottom: 20, left: 20},
+    fullwidth = 800,
+    width = fullwidth - margin.left - margin.right,
+    fullheight = 600,
+    height = fullheight - margin.top - margin.bottom;
+
+var svg = d3.select("body").append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+
+
+iface.background = svg.append("g")
+
+iface.map = svg.append("g")
+    //.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+    .attr("class","map")
+
+iface.background.append("rect")
+    .attr("class", "background")
+    .attr("width", fullwidth)
+    .attr("height", fullheight)
+    .on("click", click );
+
+iface.loading = svg.append("g")
+    .attr("transform", "translate(" + margin.left + "," + (margin.top - fullheight) + ")");
+
+iface.loading.append("rect")
+    .attr("class", "loading")
+    .attr("width", width)
+    .attr("height", height)
+    .attr("rx", 10);
+
+iface.menu = svg.append("g")
+    //.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+    .attr("class","menu")
+
+var button = {"spacing": 10, "size": 30}
+
+iface.menu
+  .append("g")
+    .attr("transform", "translate(" + button.spacing + "," + button.spacing + ")")
+  .append("rect")
+    .attr("width", 2*button.spacing + button.size)
+    .attr("height", 3*button.spacing + 2*button.size)
+    .attr("rx", 10);
+
+var B1 = iface.menu
+  .append("g")
+    .attr("transform", "translate(" + 2*button.spacing + "," + 2*button.spacing + ")")
+  .append("rect")
+    .attr("width", button.size)
+    .attr("height", button.size)
+    .attr("rx", 4);
+
+
+
+var B2 = iface.menu
+  .append("g")
+    .attr("transform", "translate(" + 2*button.spacing + "," + (3*button.spacing + button.size) + ")")
+  .append("rect")
+    .attr("width", button.size)
+    .attr("height", button.size)
+    .attr("rx", 4);
+
+var center = { x: width/2, y: height/2};
+
+var color = d3.scale.linear()
+    .domain([-500, -60, 0, 300, 2000]) //the color scale
+    .range(["blue","white", "white","white", "red"]); //the colors
+
+var lonlat = [-122.4376, 37.77];
+
+var projection = d3.geo.mercator()
+  .center(lonlat)  
+  .scale(200000)
+  .translate([width/2, height/2])
+
+var xy = projection(lonlat);
+
+var path = d3.geo.path()
+  .projection(projection);
+
+var parseDate = d3.time.format("%x_%H:%M:%S.%L_%p").parse;
+
+function click(d) {
+  //global iface, centered, width, height
+  var x, y, k, Bound, B ;
+  if (d && centered !== d) {
+    Bounds=[]
+    d.each(function(p){ Bounds.push(path.bounds(p))})
+    B = [
+          [
+            Math.min.apply(null,Bounds.map(function(d){return d[0][0]})),
+            Math.min.apply(null,Bounds.map(function(d){return d[0][1]}))
+          ], 
+          [
+            Math.max.apply(null,Bounds.map(function(d){return d[1][0]})),
+            Math.max.apply(null,Bounds.map(function(d){return d[1][1]}))
+          ]
+        ]
+    x = (B[0][0]+B[1][0])/2 
+    y = (B[0][1]+B[1][1])/2 
+    k = 0.9 *Math.min(width / (Math.abs(B[0][0]-B[1][0])), (height / (Math.abs(B[0][1]-B[1][1]))));
+    centered = d;
+  } else {
+    x = width / 2;
+    y = height / 2;
+    k = 1;
+    centered = null;
+    deselect()
+  }
+
+  iface.map.selectAll("path")
+      .classed("active", centered && function(d) { return d === centered; });
+
+  iface.map.transition()
+      .duration(1000)
+      .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")scale(" + k + ")translate(" + -x + "," + -y + ")")
+      .style("stroke-width", 1.5 / k + "px");  
+}
+
+function deselect(){
+  d3.selectAll(".selected").remove()
+}
+
+function selectOneRoute(route) {
+  //global sroute, shapes
+  d3.selectAll(".selected").remove()
+  d3.json("routes.json", function(error, data) {
+    route = data.filter(function(d) { return d._id == route})[0]
+
+    sroute = iface.map.selectAll("shapes.route")
+    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
+    .append("path")
+    .attr("d", path)
+    .attr("class", "selected")
+    .style("stroke", "black")
+    .style("stroke-width", 3)
+
+    sroute = iface.map.selectAll("shapes.route")
+    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
+    .append("path")
+    .attr("d", path)
+    .attr("class", "selected")
+    .style("stroke", "red")
+  })
+}
+
+function drawAllroutes(shapes) {
+  //global routes
+  d3.json("routes.json", function(error, data) {
+    routes = {}
+    data.forEach(function(route) {
+      routes[route._id] = iface.map.selectAll("shapes.route")
+        .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
+        .append("path")
+        .attr("d", path)
+        .attr("class", "route")
+        .on("mouseover", function() { routes[route._id].style("stroke-width", 3)})
+        .on("mouseout", function() { routes[route._id].style("stroke-width", null)})
+        .on("click", function(d) {click(routes[route._id]); selectOneRoute(route._id)})      
+    })
+  })
+}
+
+function findDelay(stop, time){ //gets the delay for the given time and stop
+    var n = bisect(stop.arrivals, time);
+    return stop.arrivals[n].delay;
+    };
+
+function play(route){
+  if(interval) return;
+    interval = setInterval(function(){
+      time = new Date(2012, 9, day, hour, minute+=5);
+        svgstops.transition().ease("quad").style("fill", function(d){
+         return color( findDelay(d,time));
+        })
+        updateHeader("Route " + route + " - " + time)
+      }, 200)
+}
+
+function resetTime(){
+  hour = 9, minute = 1, day = 3; //start time
+  time = new Date(2012, 9, day, hour, minute);
+  clearInterval(interval);
+  interval = false;
+}
+
+function menu() {
+  //global shapes
+  d3.json("shapes.json", function(error, data) {
+    shapes = data
+    drawAllroutes(shapes)
+
+    B1.on("mouseover", function(){d3.select(this).style("stroke-width", 5)})
+      .on("mouseout", function(){d3.select(this).style("stroke-width", null)})
+      .on("click", null)
+
+    B2.on("mouseover", function(){d3.select(this).style("stroke-width", 5)})
+      .on("mouseout", function(){d3.select(this).style("stroke-width", null)})
+      .on("click", null)
+  })
+}
+
+// START
+menu()
+
+</script>
