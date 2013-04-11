@@ -86,12 +86,14 @@ var svg = d3.select("body").append("svg")
     .attr("width", width + margin.left + margin.right)
     .attr("height", height + margin.top + margin.bottom)
 
+var busDrawInterval
 
 iface.background = svg.append("g")
 
-iface.map = svg.append("g")
-    //.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
-    .attr("class","map")
+iface.map = svg.append("g").attr("class","map")
+  iface.map.append("g").attr('class',"routes")
+  iface.map.append("g").attr('class',"stops")
+  iface.map.append("g").attr('class',"buses")
 
 iface.background.append("rect")
     .attr("class", "background")
@@ -129,8 +131,6 @@ var B1 = iface.menu
     .attr("width", button.size)
     .attr("height", button.size)
     .attr("rx", 4);
-
-
 
 var B2 = iface.menu
   .append("g")
@@ -188,8 +188,6 @@ function locOnPath(s_id, dist){
   return d3.select(targetPath).node().getPointAtLength( p * pathLength )
 }
 
-
-
 function getBusPos(bus, time, buses){
   //console.log({"bus":bus, "time":time, "buses":buses})
   var events = buses[bus]
@@ -201,31 +199,56 @@ function getBusPos(bus, time, buses){
 
 function getBuses(time, buses){
   var res = {}
+
   // returns the list of all the buses running on the route
   // FIX THE CONDITION TO BE ACTIVE BY LOOKING AT THE TRIP ID
   d3.keys(buses).forEach(function(bus){
-    events = buses[bus]
-    if( events[0].time <= time && time <= events[events.length-1].time) 
+    var events = buses[bus]
+    //console.log(events)
+    var previous = -1
+
+    events.forEach(function(event, i) {
+      if (event.time <= time) {
+        previous = i
+      }
+    })
+    var next = previous + 1
+
+    if (previous != -1 && next < events.length){
+      if (events[previous].trip == events[next].trip && events[previous].dist < events[next].dist) {
       res[bus] = buses[bus]
+      }
+      else{
+        //console.log({"p":previous, "n":next, "pt":events[previous].trip, "nt":events[next].trip})
+      }
+    }
+    // if (p_event == undefined) {console.log({"events": events, "bus": bus, "time": time, "pos": previous(events, time)})}
+
+
+    // if( previous != undefined && 
+    //     next != undefined && previous.time <= time && time <= next.time && previous.trip == next.trip) {
+    //   res[bus] = buses[bus]
+    // }
   })
+  //console.log(res)
   return res
 }
 
 function drawBuses(buses) {
   var time =  new Date("10/3/2012 08:00:00.000000 AM"); //test time
   var minute = 0;
+  var sec = 0
 
-  var busDrawInterval = setInterval(function(){
-      time = new Date(2012, 9, 3, 8, minute+=10);
-      console.log(time)
+  busDrawInterval = setInterval(function(){
+      time = new Date(2012, 9, 2, 8, 0, sec+=10);
+      //console.log(time)
       // get an object that contains all the current buses
       var currentBuses = getBuses(time, buses)
       //console.log('number of buses: ' + d3.keys(currentBuses).length)
 
 
-      iface.map.append("g").attr('class',"buses")
-      // remove all svg circles for buses that no longer exist
       
+      // remove all svg circles for buses that no longer exist
 
       d3.select(".buses").selectAll('circle').filter(function(bus){
         return !currentBuses[bus]
@@ -234,10 +257,12 @@ function drawBuses(buses) {
       // update any current buses
       d3.select(".buses").selectAll('circle').each(function(bus){      
         var pos = getBusPos(bus, time, buses)
+        if (pos != undefined) {
         d3.select(this)
           .transition().duration(100)
           .attr('cx', pos.x)
           .attr('cy', pos.y)
+        }
         // remove this bus from the current buses so we can diff between the buses that need to be added vs the ones that are already there
         delete currentBuses[bus]
       })
@@ -245,11 +270,13 @@ function drawBuses(buses) {
       // create any new buse elements that didnt exist before
       d3.keys(currentBuses).forEach(function(bus){
         var pos = getBusPos(bus, time, buses)
+        if (pos != undefined) {
         d3.select(".buses").append('circle')
           .attr('cx', pos.x)
           .attr('cy', pos.y)
           .attr('r', 3)
           .datum(bus)
+        }
       })
       if (time > new Date(2012,9,5,12,0)){
         clearInterval(busDrawInterval)
@@ -260,15 +287,11 @@ function drawBuses(buses) {
 }
 
 function loadStops(route_id){
-  // global "stops"
-  console.log(route_id)
   d3.json("stops.json" ,function(error, data) {
-
-
     var info = data.routes.filter(function(route){ return route._id == route_id})[0].stops
     // stops.routes is an array but only contains one element
     
-    iface.map.selectAll("circle.stop") 
+    d3.selectAll(".stops").selectAll("circle.stop") 
       .data(info)
       .enter()
       .append("circle")
@@ -303,14 +326,11 @@ function loadBuses(route_id){
 
 function selectOneRoute(route) {
   //global sroute, shapes
-  d3.selectAll(".selected").remove()
-  d3.selectAll(".stop").remove()
-  d3.selectAll(".buses").remove()
-
+  
   d3.json("routes.json", function(error, data) {
     route = data.filter(function(d) { return d._id == route})[0]
 
-    sroute = iface.map.selectAll("shapes.route")
+    sroute = d3.selectAll(".routes").selectAll("shapes.route")
     .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
     .append("path")
     .attr("d", path)
@@ -318,7 +338,7 @@ function selectOneRoute(route) {
     .style("stroke", "black")
     .style("stroke-width", 3)
 
-    sroute = iface.map.selectAll("shapes.route")
+    sroute = d3.selectAll(".routes").selectAll("shapes.route")
     .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
     .append("path")
     .attr("d", path)
@@ -331,14 +351,15 @@ function selectOneRoute(route) {
   })
 }
 
-function deselect(){
-  d3.selectAll(".selected").remove()
-  d3.selectAll(".stop").remove()
-  d3.selectAll(".buses").remove()
-}
+function deselect(){}
 
 function click(d) {
   //global iface, centered, width, height
+  clearInterval(busDrawInterval)
+  d3.selectAll(".selected").remove()
+  d3.selectAll(".stops").selectAll("circle").remove()
+  d3.selectAll(".buses").selectAll("circle").remove()
+
   var x, y, k, Bound, B ;
   if (d && centered !== d) {
     Bounds=[]
@@ -383,7 +404,7 @@ function drawAllroutes(shapes) {
   d3.json("routes.json", function(error, data) {
     routes = {}
     data.forEach(function(route) {
-      routes[route._id] = iface.map.selectAll("shapes.route")
+      routes[route._id] = d3.selectAll(".routes").selectAll("shapes.route")
         .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
         .append("path")
         .attr("d", path)
