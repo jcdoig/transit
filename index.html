@@ -28,6 +28,11 @@ body {
     stroke: grey;
   }
 
+  .stop {
+    fill: white;
+    stroke: black;
+    stroke-width: 1;
+  }
   .map path {
     fill: none;
     stroke: grey;
@@ -155,6 +160,183 @@ var path = d3.geo.path()
 
 var parseDate = d3.time.format("%x_%H:%M:%S.%L_%p").parse;
 
+var bisectL = d3.bisector(function(d) { return d.time; }).left;
+
+function findInitialPos(events){
+  var a = events[0]
+  return [a.dist, a.trip, a.shape]
+}
+
+function findPos(events,time){
+  var n = bisectL(events, time)
+  if (events[0].time <= time && time <= events[events.length-1].time) {//todo: account for big gaps in time
+    //Note that 1 needs to be subtracted from n
+    var a = events[n-1]
+    var b = events[n]
+
+    return [a.dist, a.time, b.dist, b.time, a.trip, b.trip, a.shape]
+  } else {  return null }   
+}
+
+function locOnPath(s_id, dist){
+  var targetPath = d3.selectAll(".route")[0].filter( function(d){ 
+    return d.__data__.properties.shape_id == s_id
+    })[0];
+  var shapeLength = targetPath.__data__.properties.l
+  var pathLength = d3.select(targetPath).node().getTotalLength()
+  var p = dist / shapeLength
+  return d3.select(targetPath).node().getPointAtLength( p * pathLength )
+}
+
+
+
+function getBusPos(bus, time, buses){
+  //console.log({"bus":bus, "time":time, "buses":buses})
+  var events = buses[bus]
+  var r = findPos(events, time)
+  if (r === null) return
+  interpDist = r[0] + ((r[2]-r[0])/(r[3]-r[1]))*(time-r[1])
+  return locOnPath(r[6], interpDist)
+}
+
+function getBuses(time, buses){
+  var res = {}
+  // returns the list of all the buses running on the route
+  // FIX THE CONDITION TO BE ACTIVE BY LOOKING AT THE TRIP ID
+  d3.keys(buses).forEach(function(bus){
+    events = buses[bus]
+    if( events[0].time <= time && time <= events[events.length-1].time) 
+      res[bus] = buses[bus]
+  })
+  return res
+}
+
+function drawBuses(buses) {
+  var time =  new Date("10/3/2012 08:00:00.000000 AM"); //test time
+  var minute = 0;
+
+  var busDrawInterval = setInterval(function(){
+      time = new Date(2012, 9, 3, 8, minute+=10);
+      console.log(time)
+      // get an object that contains all the current buses
+      var currentBuses = getBuses(time, buses)
+      //console.log('number of buses: ' + d3.keys(currentBuses).length)
+
+
+      iface.map.append("g").attr('class',"buses")
+      // remove all svg circles for buses that no longer exist
+      
+
+      d3.select(".buses").selectAll('circle').filter(function(bus){
+        return !currentBuses[bus]
+      }).remove()
+      
+      // update any current buses
+      d3.select(".buses").selectAll('circle').each(function(bus){      
+        var pos = getBusPos(bus, time, buses)
+        d3.select(this)
+          .transition().duration(100)
+          .attr('cx', pos.x)
+          .attr('cy', pos.y)
+        // remove this bus from the current buses so we can diff between the buses that need to be added vs the ones that are already there
+        delete currentBuses[bus]
+      })
+
+      // create any new buse elements that didnt exist before
+      d3.keys(currentBuses).forEach(function(bus){
+        var pos = getBusPos(bus, time, buses)
+        d3.select(".buses").append('circle')
+          .attr('cx', pos.x)
+          .attr('cy', pos.y)
+          .attr('r', 3)
+          .datum(bus)
+      })
+      if (time > new Date(2012,9,5,12,0)){
+        clearInterval(busDrawInterval)
+      }
+    }, 100)
+
+
+}
+
+function loadStops(route_id){
+  // global "stops"
+  console.log(route_id)
+  d3.json("stops.json" ,function(error, data) {
+
+
+    var info = data.routes.filter(function(route){ return route._id == route_id})[0].stops
+    // stops.routes is an array but only contains one element
+    
+    iface.map.selectAll("circle.stop") 
+      .data(info)
+      .enter()
+      .append("circle")
+      .attr("stroke-width", 0.5)
+      .attr({
+        class: "stop",
+        r: 3,
+        cx: function(d,i) { return projection([d.longitude, d.latitude])[0]  },
+        cy:  function(d,i) { return projection([d.longitude, d.latitude])[1]  }
+        })
+  })
+}
+
+function loadBuses(route_id){
+  // add cb
+  d3.json("data/" + route_id + ".json", function(err, data){
+    console.log(data)
+    if(err) throw err
+    var buses = data
+    d3.keys(buses).forEach(function(bus){
+      var events = buses[bus]
+      events.forEach(function(event){
+        event.time = new Date(event.time)
+      })
+    })
+    drawBuses(buses)
+    //if(cb) cb(buses)
+  })
+}
+
+
+
+function selectOneRoute(route) {
+  //global sroute, shapes
+  d3.selectAll(".selected").remove()
+  d3.selectAll(".stop").remove()
+  d3.selectAll(".buses").remove()
+
+  d3.json("routes.json", function(error, data) {
+    route = data.filter(function(d) { return d._id == route})[0]
+
+    sroute = iface.map.selectAll("shapes.route")
+    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
+    .append("path")
+    .attr("d", path)
+    .attr("class", "selected")
+    .style("stroke", "black")
+    .style("stroke-width", 3)
+
+    sroute = iface.map.selectAll("shapes.route")
+    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
+    .append("path")
+    .attr("d", path)
+    .attr("class", "selected")
+    .style("stroke", "red")
+
+    loadStops(route._id)
+    loadBuses(route._id)
+    // START LOADING THE SIMULATION
+  })
+}
+
+function deselect(){
+  d3.selectAll(".selected").remove()
+  d3.selectAll(".stop").remove()
+  d3.selectAll(".buses").remove()
+}
+
 function click(d) {
   //global iface, centered, width, height
   var x, y, k, Bound, B ;
@@ -192,32 +374,9 @@ function click(d) {
       .style("stroke-width", 1.5 / k + "px");  
 }
 
-function deselect(){
-  d3.selectAll(".selected").remove()
-}
 
-function selectOneRoute(route) {
-  //global sroute, shapes
-  d3.selectAll(".selected").remove()
-  d3.json("routes.json", function(error, data) {
-    route = data.filter(function(d) { return d._id == route})[0]
 
-    sroute = iface.map.selectAll("shapes.route")
-    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
-    .append("path")
-    .attr("d", path)
-    .attr("class", "selected")
-    .style("stroke", "black")
-    .style("stroke-width", 3)
 
-    sroute = iface.map.selectAll("shapes.route")
-    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
-    .append("path")
-    .attr("d", path)
-    .attr("class", "selected")
-    .style("stroke", "red")
-  })
-}
 
 function drawAllroutes(shapes) {
   //global routes
@@ -236,28 +395,11 @@ function drawAllroutes(shapes) {
   })
 }
 
-function findDelay(stop, time){ //gets the delay for the given time and stop
-    var n = bisect(stop.arrivals, time);
-    return stop.arrivals[n].delay;
-    };
+// ANIMATION STARTS HERE
 
-function play(route){
-  if(interval) return;
-    interval = setInterval(function(){
-      time = new Date(2012, 9, day, hour, minute+=5);
-        svgstops.transition().ease("quad").style("fill", function(d){
-         return color( findDelay(d,time));
-        })
-        updateHeader("Route " + route + " - " + time)
-      }, 200)
-}
 
-function resetTime(){
-  hour = 9, minute = 1, day = 3; //start time
-  time = new Date(2012, 9, day, hour, minute);
-  clearInterval(interval);
-  interval = false;
-}
+
+// ENDS
 
 function menu() {
   //global shapes
