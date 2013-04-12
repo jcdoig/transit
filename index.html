@@ -87,6 +87,11 @@ var svg = d3.select("body").append("svg")
     .attr("height", height + margin.top + margin.bottom)
 
 var busDrawInterval
+var time;
+var buses;
+var last = 0;
+var pause = false;
+
 
 iface.background = svg.append("g")
 
@@ -168,15 +173,23 @@ function findInitialPos(events){
 }
 
 function findPos(events,time){
+  
   var n = bisectL(events, time)
-  if (events[0].time <= time && time <= events[events.length-1].time) {//todo: account for big gaps in time
+  if (n < events.length)//(events[0].time <= time && time <= events[events.length-1].time) {//todo: account for big gaps in time
+  {
     //Note that 1 needs to be subtracted from n
-    var a = events[n-1]
+    var a = events[n]
     var b = events[n]
+    if (n < events.length -1) {
+      b = events[n+1]
+    }
 
     return [a.dist, a.time, b.dist, b.time, a.trip, b.trip, a.shape]
-  } else {  return null }   
+  } else {  
+
+    return null }   
 }
+
 
 function locOnPath(s_id, dist){
   var targetPath = d3.selectAll(".route")[0].filter( function(d){ 
@@ -197,93 +210,90 @@ function getBusPos(bus, time, buses){
   return locOnPath(r[6], interpDist)
 }
 
-function getBuses(time, buses){
-  var res = {}
 
-  // returns the list of all the buses running on the route
-  // FIX THE CONDITION TO BE ACTIVE BY LOOKING AT THE TRIP ID
-  d3.keys(buses).forEach(function(bus){
-    var events = buses[bus]
-    //console.log(events)
-    var previous = -1
 
-    events.forEach(function(event, i) {
-      if (event.time <= time) {
-        previous = i
+function lookupEvent(events, time){
+  var n = -1
+  var test = events[0].time
+  for (var i=0;i<events.length;i++)
+    { 
+      if (test > events[i].time) {console.log("WTF... sort your array")}
+      if (events[i].time <= time){
+        n = i
       }
-    })
-    var next = previous + 1
-
-    if (previous != -1 && next < events.length){
-      if (events[previous].trip == events[next].trip && events[previous].dist < events[next].dist) {
-      res[bus] = buses[bus]
-      }
-      else{
-        //console.log({"p":previous, "n":next, "pt":events[previous].trip, "nt":events[next].trip})
-      }
+      test = events[i].time
     }
-    // if (p_event == undefined) {console.log({"events": events, "bus": bus, "time": time, "pos": previous(events, time)})}
-
-
-    // if( previous != undefined && 
-    //     next != undefined && previous.time <= time && time <= next.time && previous.trip == next.trip) {
-    //   res[bus] = buses[bus]
-    // }
-  })
-  //console.log(res)
-  return res
+  return n
 }
 
-function drawBuses(buses) {
-  var time =  new Date("10/3/2012 08:00:00.000000 AM"); //test time
-  var minute = 0;
-  var sec = 0
-
-  busDrawInterval = setInterval(function(){
-      time = new Date(2012, 9, 2, 8, 0, sec+=10);
-      //console.log(time)
-      // get an object that contains all the current buses
-      var currentBuses = getBuses(time, buses)
-      //console.log('number of buses: ' + d3.keys(currentBuses).length)
-
-
+function getActiveBuses(){
+  var activeBuses = []
+  d3.selectAll(".buses").selectAll("circle").each(function(bus){
+    var events = buses[bus]
+    var n = lookupEvent(events, time)
+    if (n < events.length - 1 && n != -1) { 
       
-      // remove all svg circles for buses that no longer exist
-
-      d3.select(".buses").selectAll('circle').filter(function(bus){
-        return !currentBuses[bus]
-      }).remove()
-      
-      // update any current buses
-      d3.select(".buses").selectAll('circle').each(function(bus){      
-        var pos = getBusPos(bus, time, buses)
-        if (pos != undefined) {
-        d3.select(this)
-          .transition().duration(100)
-          .attr('cx', pos.x)
-          .attr('cy', pos.y)
-        }
-        // remove this bus from the current buses so we can diff between the buses that need to be added vs the ones that are already there
-        delete currentBuses[bus]
-      })
-
-      // create any new buse elements that didnt exist before
-      d3.keys(currentBuses).forEach(function(bus){
-        var pos = getBusPos(bus, time, buses)
-        if (pos != undefined) {
-        d3.select(".buses").append('circle')
-          .attr('cx', pos.x)
-          .attr('cy', pos.y)
-          .attr('r', 3)
-          .datum(bus)
-        }
-      })
-      if (time > new Date(2012,9,5,12,0)){
-        clearInterval(busDrawInterval)
+      if (events[n].time <= time && time <= events[n+1].time && events[n].trip == events[n+1].trip) 
+      {
+        activeBuses.push(bus)
       }
-    }, 100)
+    }
+  })
+  return activeBuses
+}
 
+function update(){
+    var activeBuses = getActiveBuses()
+    //console.log(activeBuses)
+    d3.select(".buses").selectAll('circle').each(function(bus){      
+      if (activeBuses.indexOf(bus) > -1) {
+        
+        var pos = getBusPos(bus, time, buses)
+        if (pos != undefined) {
+        //console.log(bus)
+        d3.select(this)
+          .style("opacity", 1)
+          .style("fill", "green")
+          .attr('cx', pos.x)
+          .attr('cy', pos.y)
+        }
+      } else {
+        d3.select(this)
+          .style("fill", "red")
+          .style("opacity", 0)
+      }
+    })
+}
 
+function callupdate() {
+  var sec = 0;
+  d3.timer(function(elapsed) {
+    time = new Date(2012, 9, 2, 8, 0, sec+=((elapsed - last)/10) );
+    //t = (t + (elapsed - last) / 5000) % 1;
+    last = elapsed;
+    update();
+    return pause
+  });
+}
+
+function drawBuses() {
+  var sec = 0;
+
+  d3.select(".buses").selectAll(".bus")
+    .data(d3.keys(buses)).enter()
+      .append("circle")
+      .style("opacity",0)
+
+  d3.selectAll(".buses").selectAll("circle").each(function(bus){
+    start = buses[bus][0].time
+    var pos = getBusPos(bus, start, buses)
+    d3.select(this)
+      .attr("cx", pos.x)
+      .attr("cy", pos.y)
+      .attr("r", 4)
+  })
+
+  callupdate();
 }
 
 function loadStops(route_id){
@@ -306,31 +316,35 @@ function loadStops(route_id){
 }
 
 function loadBuses(route_id){
-  // add cb
   d3.json("data/" + route_id + ".json", function(err, data){
     console.log(data)
     if(err) throw err
-    var buses = data
+    buses = data
     d3.keys(buses).forEach(function(bus){
       var events = buses[bus]
       events.forEach(function(event){
         event.time = new Date(event.time)
       })
+      buses[bus] = buses[bus].sort(function(a, b){return a.time-b.time})
+
     })
-    drawBuses(buses)
-    //if(cb) cb(buses)
+    drawBuses()
   })
 }
 
+function loadRoute(route_id){
+    loadStops(route_id)
+    loadBuses(route_id)
+}
 
 
-function selectOneRoute(route) {
+function selectOneRoute(route_id) {
   //global sroute, shapes
   
   d3.json("routes.json", function(error, data) {
-    route = data.filter(function(d) { return d._id == route})[0]
+    var route = data.filter(function(d) { return d._id == route_id})[0]
 
-    sroute = d3.selectAll(".routes").selectAll("shapes.route")
+    d3.selectAll(".routes").selectAll("shapes.route")
     .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
     .append("path")
     .attr("d", path)
@@ -338,15 +352,14 @@ function selectOneRoute(route) {
     .style("stroke", "black")
     .style("stroke-width", 3)
 
-    sroute = d3.selectAll(".routes").selectAll("shapes.route")
+    d3.selectAll(".routes").selectAll("shapes.route")
     .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
     .append("path")
     .attr("d", path)
     .attr("class", "selected")
     .style("stroke", "red")
 
-    loadStops(route._id)
-    loadBuses(route._id)
+    loadRoute(route_id)
     // START LOADING THE SIMULATION
   })
 }
@@ -395,10 +408,6 @@ function click(d) {
       .style("stroke-width", 1.5 / k + "px");  
 }
 
-
-
-
-
 function drawAllroutes(shapes) {
   //global routes
   d3.json("routes.json", function(error, data) {
@@ -430,7 +439,7 @@ function menu() {
 
     B1.on("mouseover", function(){d3.select(this).style("stroke-width", 5)})
       .on("mouseout", function(){d3.select(this).style("stroke-width", null)})
-      .on("click", null)
+      .on("click", function(){pause = !pause})
 
     B2.on("mouseover", function(){d3.select(this).style("stroke-width", 5)})
       .on("mouseout", function(){d3.select(this).style("stroke-width", null)})
