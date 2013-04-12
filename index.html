@@ -33,6 +33,10 @@ body {
     stroke: black;
     stroke-width: 1;
   }
+
+  .buses {
+    fill: black;
+  }
   .map path {
     fill: none;
     stroke: grey;
@@ -104,7 +108,7 @@ iface.background.append("rect")
     .attr("class", "background")
     .attr("width", fullwidth)
     .attr("height", fullheight)
-    .on("click", click );
+    .on("click", zoomOnRoute );
 
 iface.loading = svg.append("g")
     .attr("transform", "translate(" + margin.left + "," + (margin.top - fullheight) + ")");
@@ -167,30 +171,6 @@ var parseDate = d3.time.format("%x_%H:%M:%S.%L_%p").parse;
 
 var bisectL = d3.bisector(function(d) { return d.time; }).left;
 
-function findInitialPos(events){
-  var a = events[0]
-  return [a.dist, a.trip, a.shape]
-}
-
-function findPos(events,time){
-  
-  var n = bisectL(events, time)
-  if (n < events.length)//(events[0].time <= time && time <= events[events.length-1].time) {//todo: account for big gaps in time
-  {
-    //Note that 1 needs to be subtracted from n
-    var a = events[n]
-    var b = events[n]
-    if (n < events.length -1) {
-      b = events[n+1]
-    }
-
-    return [a.dist, a.time, b.dist, b.time, a.trip, b.trip, a.shape]
-  } else {  
-
-    return null }   
-}
-
-
 function locOnPath(s_id, dist){
   var targetPath = d3.selectAll(".route")[0].filter( function(d){ 
     return d.__data__.properties.shape_id == s_id
@@ -204,7 +184,7 @@ function locOnPath(s_id, dist){
 function getBusPos(bus, time, buses){
   //console.log({"bus":bus, "time":time, "buses":buses})
   var events = buses[bus]
-  var r = findPos(events, time)
+  var r = lookupPos(events, time)
   if (r === null) return
   interpDist = r[0] + ((r[2]-r[0])/(r[3]-r[1]))*(time-r[1])
   return locOnPath(r[6], interpDist)
@@ -226,6 +206,20 @@ function lookupEvent(events, time){
   return n
 }
 
+function lookupPos(events,time){
+  var n = lookupEvent(events, time)   
+  if (n < events.length && n != -1) { 
+    var a = events[n]
+    var b = events[n]
+    if (n < events.length -1) {
+      b = events[n+1]
+    }
+    return [a.dist, a.time, b.dist, b.time, a.trip, b.trip, a.shape]
+  } else {  
+    return null 
+  }   
+}
+
 function getActiveBuses(){
   var activeBuses = []
   d3.selectAll(".buses").selectAll("circle").each(function(bus){
@@ -233,7 +227,7 @@ function getActiveBuses(){
     var n = lookupEvent(events, time)
     if (n < events.length - 1 && n != -1) { 
       
-      if (events[n].time <= time && time <= events[n+1].time && events[n].trip == events[n+1].trip) 
+      if (events[n].time <= time && time <= events[n+1].time && events[n].trip == events[n+1].trip && events[n].dist < events[n+1].dist) 
       {
         activeBuses.push(bus)
       }
@@ -253,31 +247,37 @@ function update(){
         //console.log(bus)
         d3.select(this)
           .style("opacity", 1)
-          .style("fill", "green")
           .attr('cx', pos.x)
           .attr('cy', pos.y)
+          .on("mouseover", function(){ d3.select(this).style("stroke", "red")})
+          .on("mouseout", function(){ d3.select(this).style("stroke", null)})
+          .on("click", function(){console.log(this.__data__)})
         }
       } else {
         d3.select(this)
-          .style("fill", "red")
           .style("opacity", 0)
+          .on("mouseover", null)
+          .on("mouseout", null)
+          .on("click", null)
       }
     })
 }
 
-function callupdate() {
-  var sec = 0;
+
+function startUpdate() {
+  pause = false
   d3.timer(function(elapsed) {
-    time = new Date(2012, 9, 2, 8, 0, sec+=((elapsed - last)/10) );
+    time.setTime(time.getTime() + (elapsed - last)*100) // 100 times faster than real speed
+    //time = new Date(2012, 9, 2, 8, 0, sec+=((elapsed - last)/10) );
     //t = (t + (elapsed - last) / 5000) % 1;
     last = elapsed;
     update();
+    if (pause) {last = 0}
     return pause
   });
 }
 
 function drawBuses() {
-  var sec = 0;
 
   d3.select(".buses").selectAll(".bus")
     .data(d3.keys(buses)).enter()
@@ -287,13 +287,14 @@ function drawBuses() {
   d3.selectAll(".buses").selectAll("circle").each(function(bus){
     start = buses[bus][0].time
     var pos = getBusPos(bus, start, buses)
+    if (pos == undefined) {console.log(bus); console.log(start)}
     d3.select(this)
       .attr("cx", pos.x)
       .attr("cy", pos.y)
       .attr("r", 4)
   })
-
-  callupdate();
+  time = new Date(2012, 9, 2, 8, 0, 0);
+  startUpdate();
 }
 
 function loadStops(route_id){
@@ -317,7 +318,7 @@ function loadStops(route_id){
 
 function loadBuses(route_id){
   d3.json("data/" + route_id + ".json", function(err, data){
-    console.log(data)
+    //console.log(data)
     if(err) throw err
     buses = data
     d3.keys(buses).forEach(function(bus){
@@ -337,43 +338,10 @@ function loadRoute(route_id){
     loadBuses(route_id)
 }
 
-
-function selectOneRoute(route_id) {
-  //global sroute, shapes
-  
-  d3.json("routes.json", function(error, data) {
-    var route = data.filter(function(d) { return d._id == route_id})[0]
-
-    d3.selectAll(".routes").selectAll("shapes.route")
-    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
-    .append("path")
-    .attr("d", path)
-    .attr("class", "selected")
-    .style("stroke", "black")
-    .style("stroke-width", 3)
-
-    d3.selectAll(".routes").selectAll("shapes.route")
-    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
-    .append("path")
-    .attr("d", path)
-    .attr("class", "selected")
-    .style("stroke", "red")
-
-    loadRoute(route_id)
-    // START LOADING THE SIMULATION
-  })
-}
-
-function deselect(){}
-
-function click(d) {
+function zoomOnRoute(d) {
   //global iface, centered, width, height
-  clearInterval(busDrawInterval)
-  d3.selectAll(".selected").remove()
-  d3.selectAll(".stops").selectAll("circle").remove()
-  d3.selectAll(".buses").selectAll("circle").remove()
 
-  var x, y, k, Bound, B ;
+  var x, y, k, Bounds, B ;
   if (d && centered !== d) {
     Bounds=[]
     d.each(function(p){ Bounds.push(path.bounds(p))})
@@ -408,6 +376,42 @@ function click(d) {
       .style("stroke-width", 1.5 / k + "px");  
 }
 
+function selectOneRoute(route_id) {
+  //global sroute, shapes, routes
+  pause = true
+
+  zoomOnRoute(routes[route_id]);
+
+  d3.selectAll(".selected").remove()
+  d3.selectAll(".stops").selectAll("circle").remove()
+  d3.selectAll(".buses").selectAll("circle").remove()
+  
+
+  d3.json("routes.json", function(error, data) {
+    var route = data.filter(function(d) { return d._id == route_id})[0]
+
+    d3.selectAll(".routes").selectAll("shapes.route")
+    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
+    .append("path")
+    .attr("d", path)
+    .attr("class", "selected")
+    .style("stroke", "black")
+    .style("stroke-width", 3)
+
+    d3.selectAll(".routes").selectAll("shapes.route")
+    .data(shapes.features.filter(function(d) { return route.shapes.indexOf(d.properties.shape_id) != -1 })).enter()
+    .append("path")
+    .attr("d", path)
+    .attr("class", "selected")
+    .style("stroke", "red")
+
+    loadRoute(route_id)
+    // START LOADING THE SIMULATION
+  })
+}
+
+function deselect(){}
+
 function drawAllroutes(shapes) {
   //global routes
   d3.json("routes.json", function(error, data) {
@@ -420,7 +424,7 @@ function drawAllroutes(shapes) {
         .attr("class", "route")
         .on("mouseover", function() { routes[route._id].style("stroke-width", 3)})
         .on("mouseout", function() { routes[route._id].style("stroke-width", null)})
-        .on("click", function(d) {click(routes[route._id]); selectOneRoute(route._id)})      
+        .on("click", function(d) { selectOneRoute(route._id)})      
     })
   })
 }
@@ -439,7 +443,7 @@ function menu() {
 
     B1.on("mouseover", function(){d3.select(this).style("stroke-width", 5)})
       .on("mouseout", function(){d3.select(this).style("stroke-width", null)})
-      .on("click", function(){pause = !pause})
+      .on("click", function(){ if (pause) { startUpdate() } else { pause = !pause }})
 
     B2.on("mouseover", function(){d3.select(this).style("stroke-width", 5)})
       .on("mouseout", function(){d3.select(this).style("stroke-width", null)})
