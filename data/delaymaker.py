@@ -4,19 +4,16 @@ import pprint
 from operator import itemgetter, attrgetter
 import datetime
 
+path = "/home/lewis/Dropbox/transit/data"
 
 def jprint(x):
 	pp = pprint.PrettyPrinter(indent=4)
 	return pp.pprint(x)
 
-path = "/home/lewis/Documents/Github/transit/data"
+for (path, dirs, files) in os.walk(path):
+    jprint(files)
 
-os.chdir("/home/lewis/Documents/Github/transit/data")
-
-#for (path, dirs, files) in os.walk(path):
- #   print files
-
-data38 = json.load(open("routes/38.json"))
+data38 = json.load(open("38.json"))
 
 datatrips = json.load(open('trips.json'))
 
@@ -46,4 +43,9 @@ for busnum in buses:
 		event['delay'] = delay
 #the event in the trips list where that happens
 
-jprint(data38[' 5547'])
+def main(path):
+	for (path, dirs, files) in os.walk(path):
+	    for e in files:
+	    	print e
+
+main(path)
