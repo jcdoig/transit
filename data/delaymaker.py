@@ -33,6 +33,8 @@ def delayMaker(data): ##calculates all the delays and updates them in the data
 			trip_s = filter( lambda d: d['stop'] == stop_a, tripevents )[0] ## the trip_s
 			time_s = trip_s['time']
 			delay =  int(time_s) - int(parse(time_a))
+			if delay > 7200:
+				delay += -3600 * 24
 			event['delay'] = delay ##add a delay property to the event with the calculated delay
 
 def print_JSON(new_data, original): ###prints the new data
