@@ -87,9 +87,18 @@ var margin = {top: 20, right: 20, bottom: 20, left: 20},
     fullheight = 600,
     height = fullheight - margin.top - margin.bottom;
 
+var D1 = d3.select("body").append("h1").text("Select one route to see the buses")
+
+
 var svg = d3.select("body").append("svg")
     .attr("width", width + margin.left + margin.right)
     .attr("height", height + margin.top + margin.bottom)
+
+var ColorDelay = d3.scale.linear()
+    .domain([-300, 0, 300]) //the color scale
+    .range(["blue", "white", "red"]); //the colors
+    //.domain([-300, -60, 0, 300, 2000]) //the color scale
+    //.range(["DodgerBlue","LightSkyBlue", "white","LightPink", "LightCoral"]); //the colors
 
 var busDrawInterval
 var time;
@@ -150,6 +159,8 @@ var B2 = iface.menu
     .attr("height", button.size)
     .attr("rx", 4);
 
+
+
 var center = { x: width/2, y: height/2};
 
 var color = d3.scale.linear()
@@ -194,6 +205,7 @@ function lookupEvent(events, time){
   var r = null
   var dist = null
   var pos = null
+  var delay = null
   if (n < events.length && n != -1) { 
     var a = events[n]
     var b = events[n]
@@ -202,9 +214,11 @@ function lookupEvent(events, time){
     }
     r = [a.dist, a.time, b.dist, b.time, a.trip, b.trip, a.shape]
     dist = r[0] + ((r[2]-r[0])/(r[3]-r[1]))*(time-r[1])
+    delay = a.delay + ((b.delay - a.delay)/(b.time - a.time))*(time - a.time)
+    delay = -delay
     pos = locOnPath(a.shape, dist)
   }
-  return {"n": n, "pos": pos}
+  return {"n": n, "pos": pos, "delay":delay}
 }
 
 function lookupBus(events, time){
@@ -218,20 +232,25 @@ function lookupBus(events, time){
       active = true
     }
   }
-  return {"active": active, "pos": cBus.pos}
+  return {"active": active, "pos": cBus.pos, "delay": cBus.delay}
 }
 
 function update(){
+    D1.text(time)
     d3.select(".buses").selectAll('circle').each(function(bus){      
       var cBus = lookupBus(buses[bus], time);
       if (cBus.active) {
         var pos = cBus.pos
+        var delay = cBus.delay
         d3.select(this)
           .style("opacity", 1)
           .attr('cx', pos.x)
           .attr('cy', pos.y)
+          .style("fill", ColorDelay(delay))
+          .style("stroke", "grey")
+          .style("stroke-width", "1")
           .on("mouseover", function(){ d3.select(this).style("stroke", "red")})
-          .on("mouseout", function(){ d3.select(this).style("stroke", null)})
+          .on("mouseout", function(){ d3.select(this).style("stroke", "grey")})
           .on("click", function(){console.log(this.__data__)})
       } else {
         d3.select(this)
@@ -246,7 +265,7 @@ function update(){
 function startUpdate() {
   pause = false
   d3.timer(function(elapsed) {
-    time.setTime(time.getTime() + (elapsed - last)*100) // 100 times faster than real speed
+    time.setTime(time.getTime() + (elapsed - last)*500) // 100 times faster than real speed
     update();
     last = elapsed;
     if (pause) {last = 0}
@@ -268,6 +287,7 @@ function drawBuses() {
     d3.select(this)
       .attr("cx", pos.x)
       .attr("cy", pos.y)
+
   })
   time = new Date(2012, 9, 2, 8, 0, 0);
   startUpdate();
@@ -293,7 +313,7 @@ function loadStops(route_id){
 }
 
 function loadBuses(route_id){
-  d3.json("data/" + route_id + ".json", function(err, data){
+  d3.json("data/new_" + route_id + ".json", function(err, data){
     //console.log(data)
     zoomOnRoute(routes[route_id])
     if(err) throw err
@@ -373,7 +393,7 @@ function selectOneRoute(route_id) {
     .attr("d", path)
     .attr("class", "selected")
     .on("click", function(d) { zoomOnRoute(routes[route_id]); console.log(d)} )
-    .style("stroke", "black")
+    .style("stroke", "GoldenRod")
     .style("stroke-width", 3)
 
 
@@ -383,7 +403,7 @@ function selectOneRoute(route_id) {
     .attr("d", path)
     .attr("class", "selected")
     .on("click", function(d) { zoomOnRoute(routes[route_id]); console.log(d)} )
-    .style("stroke", "red")
+    .style("stroke", "Gold")
 
     loadRoute(route_id)
     // START LOADING THE SIMULATION
